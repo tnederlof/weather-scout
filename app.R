@@ -15,7 +15,7 @@ all_stations_tbl <- dplyr::tbl(pool, "weather_station_map") %>%
                                         T ~ as.character(NA))) %>%
   dplyr::filter(!is.na(freq))
 
-ui <- navbarPage("Long-term Weather", id = "nav",
+ui <- navbarPage("Weather Scout", id = "nav",
                  
                  tabPanel("Interactive map",
                           div(class = "outer",
@@ -541,6 +541,7 @@ server <- function(input, output, session) {
     } else {
       stop("Frequency not yet supported")
     }
+    req(total_data_tbl)
     
     total_data_tbl_clean <- total_data_tbl %>%
       dplyr::rename(Average = value,

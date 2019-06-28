@@ -1,4 +1,4 @@
-# Welcome to Historical Weather Explorer
+# Welcome to Weather Scout
 
 &nbsp;
 &nbsp;
