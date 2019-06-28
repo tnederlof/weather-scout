@@ -1,0 +1,7 @@
+filename,metric
+dly-tavg-normal.txt,Long-term averages of daily average temperature
+dly-tavg-stddev.txt,Long-term standard deviations of daily average temperature
+dly-tmax-normal.txt,Long-term averages of daily maximum temperature
+dly-tmax-stddev.txt,Long-term standard deviations of daily maximum temperature
+dly-tmin-normal.txt,Long-term averages of daily minimum temperature
+dly-tmin-stddev.txt,Long-term standard deviations of daily minimum temperature
