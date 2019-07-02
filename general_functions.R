@@ -1,12 +1,12 @@
 # connect to the database, add a new table, append to an existing one or overwrite the old table
-add_to_db <- function(data_tbl, table_name, index_fields, credentials_list, overwrite = F) {
+add_to_db <- function(data_tbl, table_name, index_fields, dw, overwrite = F) {
   # add to database (set your PostgreSQL db credentials in startup.R)
   con <- DBI::dbConnect(RPostgres::Postgres(),
-                        dbname = credentials_list$db_db,
-                        host = credentials_list$db_host,
-                        port = credentials_list$db_port,
-                        user = credentials_list$db_user,
-                        password = credentials_list$db_password)
+                        dbname = dw$database,
+                        host = dw$server,
+                        port = dw$port,
+                        user = dw$uid,
+                        password = dw$pwd)
   if (DBI::dbExistsTable(con, table_name)) {
     add_result <- dbWriteTable(con, table_name, data_tbl, append = T)
   } else if (overwrite) {
@@ -36,16 +36,16 @@ add_to_db <- function(data_tbl, table_name, index_fields, credentials_list, over
 }
 
 
-get_weather_station_data <- function(station_id, credentials_list, pool = NULL,
+get_weather_station_data <- function(station_id, dw, pool = NULL,
                                      frequency = "d") {
   # add to database (set your PostgreSQL db credentials in startup.R)
   if (is.null(pool)) {
     con <- DBI::dbConnect(RPostgres::Postgres(),
-                          dbname = credentials_list$db_db,
-                          host = credentials_list$db_host,
-                          port = credentials_list$db_port,
-                          user = credentials_list$db_user,
-                          password = credentials_list$db_password)
+                          dbname = dw$database,
+                          host = dw$server,
+                          port = dw$port,
+                          user = dw$uid,
+                          password = dw$pwd)
   } else {
     con <- pool
   }

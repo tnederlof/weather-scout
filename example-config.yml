@@ -1,0 +1,13 @@
+# THIS FILE IS ONLY AN EXAMPLE. Please fill out server, uid, pwd, port, database and google_api with
+# your credentials to connect this application to a PostgreSQL database.
+#
+# Rename this file to config.yml and change the line below "default:" to maindb
+default:
+  example-db:
+    driver: 'Postgres' 
+    server: 'example-server.com'
+    uid: 'example-usernmae'
+    pwd: 'example-password'  
+    port: 5544
+    database: 'example-database'
+    google_api: "example-google-api-code"

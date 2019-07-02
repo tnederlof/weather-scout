@@ -2,10 +2,3 @@ filename,metric
 hly-temp-10pctl.txt,temperature 10th percentile
 hly-temp-90pctl.txt,temperature 90th percentile
 hly-temp-normal.txt,temperature mean
-hly-wchl-normal.txt,wind chill mean
-hly-wind-1stdir.txt,prevailing wind direction (1-8)
-hly-wind-1stpct.txt,prevailing wind percentage
-hly-wind-avgspd.txt,average wind speed
-hly-wind-pctclm.txt,percentage calm
-hly-wind-vctdir.txt,mean wind vector direction
-hly-wind-vctspd.txt,mean wind vector magnitude

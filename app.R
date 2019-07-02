@@ -2,22 +2,27 @@ source("startup.R")
 source("global_db.R")
 
 ui <- navbarPage("Weather Scout", id = "nav",
+                 # tablPanel 1 which contains the main map, search and data display panels of the application
                  tabPanel("Interactive map",
                           div(class = "outer",
                               tags$head(
-                                # Include our custom CSS
+                                # allows for custom css and javascript
                                 includeCSS("style.css"),
                                 includeScript("gomap.js")
                               ),
-                              
-                              # If not using custom CSS, set height of leafletOutput to a number instead of percent
-                              leafletOutput("map", width="100%", height="100%"),
+                              # create the leaflet.js based map
+                              leafletOutput("map", width = "100%", height = "100%"),
+                              # create the destination search box and enter button (which can also be
+                              # triggered by hitting enter due to a line added in gomap.js)
                               absolutePanel(top = 5, left = 70, uiOutput("map_search")),
                               absolutePanel(top = 25, left = 375, uiOutput("map_enter")),
+                              # create side panel
                               absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
                                             draggable = FALSE, top = 74, left = "auto", right = 20, bottom = "auto",
                                             width = 600, height = "auto",
+                                            # display information about the selected weather station
                                             box(uiOutput("station_info"), width = 12, height = "100px"),
+                                            # display control and graph output panels
                                             tabBox(width = 12,
                                                    id = "main_tab_box", height = "690px",
                                                    tabPanel("Quick Look",
@@ -29,12 +34,10 @@ ui <- navbarPage("Weather Scout", id = "nav",
                                                             withSpinner(plotlyOutput("temp_timeseries_graph", height = "400px"))
                                                    )
                                             )
-                              ),
-                              
-                              tags$div(id="cite",
-                                       "Anthony Arguez, Imke Durre, Scott Applequist, Mike Squires, Russell Vose, Xungang Yin, and Rocky Bilotta (2010). NOAA's U.S. Climate Normals (1981-2010). NOAA National Centers for Environmental Information. DOI:10.7289/V5PN93JP")
+                              )
                           )
                  ),
+                 # tablPanel 2 which contains the about page giving background on the project and about the author
                  tabPanel("About",
                    fluidRow(
                      column(3,
@@ -51,49 +54,52 @@ ui <- navbarPage("Weather Scout", id = "nav",
 )
 
 server <- function(input, output, session) {
-  
-  # Create the map
+  # create the initial leaflet map
   output$map <- renderLeaflet({
     leaflet() %>%
       addProviderTiles(providers$OpenTopoMap, options = providerTileOptions(
-        updateWhenZooming = FALSE,      # map won't update tiles until zoom is done
-        updateWhenIdle = TRUE           # map won't load new tiles when panning
+        updateWhenZooming = FALSE, # map won't update tiles until zoom is done (done to increase speed)
+        updateWhenIdle = TRUE      # map won't load new tiles when panning (done to increase speed)
       )) %>%
       leaflet::addLegend("bottomleft", labels = c("Hourly", "Daily"),
                          colors = c("green", "blue"), title = "Weather Station Data Frequency",
                          layerId = "legend") %>%
+      # set the view so the whole United States is in view as a starting point
+      # (this could be changed to start in a particular area)
       leaflet::setView(lng = -89.3, lat = 38.3458, zoom = 5)
   })
   
+  # initialize the store of reactive values used throughout the application
   map_status_list <- reactiveValues("station_selected" = NULL,
                                     "destination" = NULL,
                                     "destination_elevation" = NULL,
                                     "quick_date" = NULL,
                                     "start_date" = NULL,
-                                    "end_date" = NULL,
-                                    "daily_data" = NULL,
-                                    "hourly_data" = NULL)
+                                    "end_date" = NULL)
   
+  # used to draw  the initial weather station circle markers on the leaflet map
   observe({
-    # Create a palette that maps factor levels to colors
+    # create a palette that maps factor levels to colors
     pal <- colorFactor(c("green", "blue"), domain = c("h", "d"), ordered = T)
-    
+    # draw circle markers of the weather stations on the map
+    # all_stations_tbl is loaded in global_db.R file at application startup
     leafletProxy("map", data = all_stations_tbl) %>%
       clearShapes() %>%
-      addCircleMarkers(~longitude, ~latitude, label=~as.character(name),
+      addCircleMarkers(~longitude, ~latitude, label = ~as.character(name),
                        layerId = ~id, color = ~pal(freq), radius = 6, fillOpacity = 0.75, opacity = 0.3,
                        group = "stations")
-    
   })
   
+  # returns a list with lat and lon elements based on the searched field using the Google Geocoding API
+  # (requires an api key set in config.yml file)
   target_pos <- reactive({
     req(input$target_zone)
     geocode(input$target_zone)
   })
   
+  # everytime the search button is activated, retrieve a new set of coordinates and save the destination found
   observeEvent(input$search_target_zone, {
     req(input$target_zone)
-
     if (input$target_zone != "") {
       target_pos <- target_pos()
       LAT = target_pos$lat
@@ -102,12 +108,10 @@ server <- function(input, output, session) {
     }
   }, ignoreNULL = F)
   
-  
+  # only count a click as an intended destination click when the user clicks on a non weather station
   observeEvent(input$map_click, {
     req(input$map_click)
-  
     if (!is.null(input$map_marker_click)) {
-      # only count as an intended destination click when the user clicks on a non weather station
       if (paste(input$map_marker_click$lat, input$map_marker_click$lng) != paste(input$map_click$lat, input$map_click$lng)) {
         map_status_list[["destination"]] <- input$map_click
       }
@@ -116,7 +120,7 @@ server <- function(input, output, session) {
     }
   })
   
-  
+  # anytime a destination is set with a map click or a search is triggered then find the new destination elevation and save it
   observeEvent({
     input$map_click
     input$search_target_zone
@@ -130,7 +134,8 @@ server <- function(input, output, session) {
     map_status_list[["destination_elevation"]] <- destination_elevation
   })
   
-  
+  # returns the elevation difference between the selected station and the destination
+  # this is then used to adjust the temperature later on
   destination_elevation_diff <- reactive({
     req(map_status_list[["destination_elevation"]])
     req(map_status_list[["station_selected"]])
@@ -140,6 +145,8 @@ server <- function(input, output, session) {
     return(map_status_list[["destination_elevation"]] - station_elevation)
   })
   
+  # once a destination is selected, draw a green marker at that location and display the elevation on hover
+  # notice that this code below sets the view to be centered on the new location with a zoom of 10
   observeEvent(input$search_target_zone, {
     req(map_status_list[["destination"]])
     req(map_status_list[["destination_elevation"]])
@@ -159,6 +166,8 @@ server <- function(input, output, session) {
                         icon = click_icon, layerId = "click_location")
   })
   
+  # once a destination is selected, draw a green marker at that location and display the elevation on hover
+  # notice that this code below does NOT set the view to be centered since that would be confusing to the user
   observeEvent(input$map_click, {
     req(map_status_list[["destination"]])
     req(map_status_list[["destination_elevation"]])
@@ -177,7 +186,7 @@ server <- function(input, output, session) {
                         icon = click_icon, layerId = "click_location")
   })
   
-  
+  # create a series of HTML to display information about a weather station
   format_station_info <- function(station_data) {
     content <- tagList(
       tags$h3(HTML(paste0("Weather Station: ", station_data$name))),
@@ -188,10 +197,7 @@ server <- function(input, output, session) {
     return(content)
   }
   
-  
-  
-  
-  
+  # draw a blue marker to show which weather station is currently selected
   observeEvent(map_status_list[["station_selected"]], {
     
     station_details_tbl <- all_stations_tbl %>% dplyr::filter(id == map_status_list[["station_selected"]])
@@ -208,12 +214,12 @@ server <- function(input, output, session) {
                         icon = selected_icon, layerId = "selected_station")
   })
   
-  
+  # save the id of the circle market when clicked, this id becomes the station selected
   observeEvent(input$map_marker_click$id, {
     map_status_list[["station_selected"]] <- input$map_marker_click$id
   })
   
-  
+  # return the id of the closest station to a certain long and lat
   closest_station <- function(all_stations_tbl, long, lat) {
     all_stations_tbl_dist <- all_stations_tbl %>% dplyr::filter(daily)
     all_stations_tbl_dist[["distance"]] <- as.numeric(apply(all_stations_tbl_dist[,c("longitude","latitude")], 1, function(x) distHaversine(c(long, lat), x))) * 0.000621371
@@ -221,25 +227,26 @@ server <- function(input, output, session) {
     return(all_stations_tbl_dist[1,]$id)
   }
   
+  # select and save the closest weather station when destination is searched
   observeEvent(input$search_target_zone, {
     req(target_pos())
     target_pos <- target_pos()
     map_status_list[["station_selected"]] <- closest_station(all_stations_tbl, target_pos$lon, target_pos$lat)
   })
   
-  ## uncomment to make the nearest weather station automatically select when destination is set
+  ## uncomment to make the nearest weather station automatically select when a destination is set
   # observeEvent(map_status_list[["destination"]], {
   #   req(map_status_list[["destination"]])
   #   map_status_list[["station_selected"]] <- closest_station(all_stations_tbl, map_status_list[["destination"]]$lng, map_status_list[["destination"]]$lat)
   # })
   
-  # db version
+  # retrieve single weather station data for a particular selected data frequency
   single_station_data <- eventReactive({
     map_status_list[["station_selected"]]
     input$data_freq
     }, {
     req(input$data_freq)
-    get_weather_station_data(map_status_list[["station_selected"]], credentials_list, pool,
+    get_weather_station_data(map_status_list[["station_selected"]], dw, pool,
                              frequency = input$data_freq)
   })
   
@@ -252,6 +259,7 @@ server <- function(input, output, session) {
     format_station_info(selected_station)
   })
   
+  # display the selected weather station information in the sidebar
   output$station_info <- renderUI({
     if (is.null(map_status_list[["station_selected"]])) {
       tagList(
@@ -265,15 +273,17 @@ server <- function(input, output, session) {
     }
   })
   
-  
+  # destination search box
   output$map_search <- renderUI({
     textInput("target_zone", "" , "", placeholder = "Enter a location: ex Denver")
   })
   
+  # destination search button
   output$map_enter <- renderUI({
     actionButton("search_target_zone", "Search Location")
   })
   
+  # ui quick data control panel options
   output$quick_data <- renderUI({
     req(map_status_list[["station_selected"]])
     
@@ -317,30 +327,29 @@ server <- function(input, output, session) {
     )
   })
   
+  # ui quick data control panel helper text (shows at the start when no weather station selected)
   output$help_prompt_text <- renderUI({
     str1 <- "Pick a date at the start of your trip!"
     str2 <- "Explore likely temperature ranges based on historical data."
     HTML(paste("<b>", paste(str1, str2, sep = '<br/>'), "</b>"))
   })
   
-  
-  
+  # shows 6 week of data starting with the selected data in the quick_data panel
   observe({
     req(input$quick_date_selected)
-    
     map_status_list[["start_date"]] <- input$quick_date_selected
     map_status_list[["end_date"]] <- input$quick_date_selected + weeks(6)
   })
   
+  # if dates are selected in the time series panels then use those start/end dates instead of default
   observe({
     req(input$ts_date_start)
     req(input$ts_date_end)
-    
     map_status_list[["start_date"]] <- input$ts_date_start
     map_status_list[["end_date"]] <- input$ts_date_end
   })
   
-  
+  # ui time series data control panel options
   output$timeseries_date_control <- renderUI({
     req(map_status_list[["station_selected"]])
     req(map_status_list[["start_date"]])
@@ -356,17 +365,20 @@ server <- function(input, output, session) {
     )
   })
   
-  
+  # cleans the weather station data to prepare it for downstream graphs
   temperature_data_clean <- reactive({
     req(single_station_data())
     req(input$data_freq)
     
-    # bring in the raw date sorted data
+    # bring in the raw station data
     temp_tbl <- single_station_data()
     
+    # if requested in the control panel, adjust temperature based on the elevation difference
+    # between the selection station and the choosen destination
     if (!is.null(map_status_list[["destination"]])) {
       if (!is.null(input$adjust_temp)) {
         if (input$adjust_temp) {
+          # the general rule of thumb is for every 1k ft temperature drops 3.57 degrees
           adjustment_factor <- ((destination_elevation_diff() / 1000) * 3.57) * -1
         } else {
           adjustment_factor <- 0
@@ -461,44 +473,8 @@ server <- function(input, output, session) {
     return(list("h" = hourly_total_data_tbl, "d" = daily_total_data_tbl))
   })
   
-  
-  single_station_data_filtered <- reactive({
-    req(map_status_list[["start_date"]])
-    req(map_status_list[["end_date"]])
-    if (is.null(temperature_data_clean()[["h"]]) & is.null(temperature_data_clean()[["d"]]))
-      return(NULL)
-    
-    start_date_use <- paste(month(map_status_list[["start_date"]]), day(map_status_list[["start_date"]]), sep = "/")
-    end_date_use <- paste(month(map_status_list[["end_date"]]), day(map_status_list[["end_date"]]), sep = "/")
-    
-    validate(need(stringr::str_detect(start_date_use, "/"), "Enter start date in 'MM/DD' format"))
-    validate(need(stringr::str_detect(end_date_use, "/"), "Enter end date in 'MM/DD' format"))
-    
-    start_date <- stringr::str_split(start_date_use, "/")[[1]]
-    end_date <- stringr::str_split(end_date_use, "/")[[1]]
-    
-    validate(need((length(start_date) == 2), "Enter start date in 'MM/DD' format"))
-    validate(need((length(end_date) == 2), "Enter end date in 'MM/DD' format"))
-    
-    start_date_combo <- as.Date(paste(start_date[1], start_date[2], "2018", sep = "/"), "%m/%d/%Y")
-    end_date_combo <- as.Date(paste(end_date[1], end_date[2], "2018", sep = "/"), "%m/%d/%Y")
-    
-    if (!is.null(temperature_data_clean()[["h"]])) {
-      h_data <- temperature_data_clean()[["h"]] %>%
-        dplyr::filter(date >= start_date_combo, date <= end_date_combo)
-    } else {
-      h_data <- NULL
-    }
-    if (!is.null(temperature_data_clean()[["d"]])) {
-      d_data <- temperature_data_clean()[["d"]] %>%
-        dplyr::filter(date >= start_date_combo, date <= end_date_combo)
-    } else {
-      d_data <- NULL
-    }
-    return(list("h" = h_data, "d" = d_data))
-  })
-  
-  
+  # filter the single station data according to the date selection in the control panel
+  # this data is used in the quick data graphs downstream
   single_station_data_quick <- reactive({
     if (is.null(temperature_data_clean()[["h"]]) & is.null(temperature_data_clean()[["d"]]))
       return(NULL)
@@ -513,7 +489,7 @@ server <- function(input, output, session) {
     validate(need((length(start_date) == 2), "Enter start date in 'MM/DD' format"))
     
     start_date_combo <- as.Date(paste(start_date[1], start_date[2], "2018", sep = "/"), "%m/%d/%Y")
-  
+    
     if (!is.null(temperature_data_clean()[["h"]])) {
       h_data <- temperature_data_clean()[["h"]] %>%
         dplyr::filter(date >= start_date_combo, date <= (start_date_combo + days(2)))
@@ -557,7 +533,7 @@ server <- function(input, output, session) {
     return(list("h" = h_data, "d" = d_data))
   })
   
-  
+  # generate the quick data weekly bar graph
   output$quick_temp_graph <- renderPlotly({
     if (is.null(single_station_data_quick()[["h"]]) & is.null(single_station_data_quick()[["d"]]))
       return(NULL)
@@ -733,6 +709,45 @@ server <- function(input, output, session) {
     p
   })
   
+  # filter the single station data according to the date(s) selection in the control panel
+  # this data is used in the time series graphs downstream
+  single_station_data_filtered <- reactive({
+    req(map_status_list[["start_date"]])
+    req(map_status_list[["end_date"]])
+    if (is.null(temperature_data_clean()[["h"]]) & is.null(temperature_data_clean()[["d"]]))
+      return(NULL)
+    
+    start_date_use <- paste(month(map_status_list[["start_date"]]), day(map_status_list[["start_date"]]), sep = "/")
+    end_date_use <- paste(month(map_status_list[["end_date"]]), day(map_status_list[["end_date"]]), sep = "/")
+    
+    validate(need(stringr::str_detect(start_date_use, "/"), "Enter start date in 'MM/DD' format"))
+    validate(need(stringr::str_detect(end_date_use, "/"), "Enter end date in 'MM/DD' format"))
+    
+    start_date <- stringr::str_split(start_date_use, "/")[[1]]
+    end_date <- stringr::str_split(end_date_use, "/")[[1]]
+    
+    validate(need((length(start_date) == 2), "Enter start date in 'MM/DD' format"))
+    validate(need((length(end_date) == 2), "Enter end date in 'MM/DD' format"))
+    
+    start_date_combo <- as.Date(paste(start_date[1], start_date[2], "2018", sep = "/"), "%m/%d/%Y")
+    end_date_combo <- as.Date(paste(end_date[1], end_date[2], "2018", sep = "/"), "%m/%d/%Y")
+    
+    if (!is.null(temperature_data_clean()[["h"]])) {
+      h_data <- temperature_data_clean()[["h"]] %>%
+        dplyr::filter(date >= start_date_combo, date <= end_date_combo)
+    } else {
+      h_data <- NULL
+    }
+    if (!is.null(temperature_data_clean()[["d"]])) {
+      d_data <- temperature_data_clean()[["d"]] %>%
+        dplyr::filter(date >= start_date_combo, date <= end_date_combo)
+    } else {
+      d_data <- NULL
+    }
+    return(list("h" = h_data, "d" = d_data))
+  })
+  
+  # generate the time series line graph
   output$temp_timeseries_graph <- renderPlotly({
     if (is.null(single_station_data_filtered()[["h"]]) & is.null(single_station_data_filtered()[["d"]]))
       return(NULL)
@@ -843,8 +858,6 @@ server <- function(input, output, session) {
     
     gg_interactive
   })
-  
-  
 }
 
 
