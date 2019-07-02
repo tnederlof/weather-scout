@@ -36,7 +36,8 @@ add_to_db <- function(data_tbl, table_name, index_fields, credentials_list, over
 }
 
 
-get_weather_station_data <- function(station_id, credentials_list, pool = NULL) {
+get_weather_station_data <- function(station_id, credentials_list, pool = NULL,
+                                     frequency = "d") {
   # add to database (set your PostgreSQL db credentials in startup.R)
   if (is.null(pool)) {
     con <- DBI::dbConnect(RPostgres::Postgres(),
@@ -49,16 +50,18 @@ get_weather_station_data <- function(station_id, credentials_list, pool = NULL) 
     con <- pool
   }
 
-  table_name_vec <- c("daily_weather_data", "hourly_weather_data")
-  freq_vec <- c("d", "h")
-  all_data_list <- purrr::map2(table_name_vec, freq_vec, function(table_name, freq) {
-    temp_tbl <- dplyr::tbl(con, table_name) %>%
-      dplyr::filter(id == station_id) %>%
-      dplyr::collect()
-    if (nrow(temp_tbl) > 0) {
-      temp_tbl[["freq"]] <- freq
-    }
-    return(temp_tbl)
-  })
-  return(dplyr::bind_rows(all_data_list))
+  if (frequency == "d") {
+    table_name_use <- "daily_weather_data"
+  } else if (frequency == "h") {
+    table_name_use <- "hourly_weather_data"
+  }
+  
+  temp_tbl <- dplyr::tbl(con, table_name_use) %>%
+    dplyr::filter(id == station_id) %>%
+    dplyr::collect()
+  if (nrow(temp_tbl) > 0) {
+    temp_tbl[["freq"]] <- frequency
+  }
+  
+  return(temp_tbl)
 }

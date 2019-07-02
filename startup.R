@@ -31,6 +31,7 @@ library(pool)
 library(shiny)
 library(shinydashboard)
 library(config)
+library(feather)
 
 # call database credentials
 dw <- config::get("maindb")

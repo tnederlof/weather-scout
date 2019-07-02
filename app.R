@@ -1,25 +1,9 @@
 source("startup.R")
-
-pool <- pool::dbPool(
-  drv = RPostgres::Postgres(),
-  dbname = dw$database,
-  host = dw$server,
-  port = dw$port,
-  user = dw$uid,
-  password = dw$pwd)
-
-all_stations_tbl <- dplyr::tbl(pool, "weather_station_map") %>%
-  dplyr::collect() %>%
-  dplyr::mutate(freq = dplyr::case_when(hourly ~ "h",
-                                        daily ~ "d",
-                                        T ~ as.character(NA))) %>%
-  dplyr::filter(!is.na(freq))
+source("global_db.R")
 
 ui <- navbarPage("Weather Scout", id = "nav",
-                 
                  tabPanel("Interactive map",
                           div(class = "outer",
-                              
                               tags$head(
                                 # Include our custom CSS
                                 includeCSS("style.css"),
@@ -53,8 +37,14 @@ ui <- navbarPage("Weather Scout", id = "nav",
                  ),
                  tabPanel("About",
                    fluidRow(
-                     column(12,
+                     column(3,
+                            tags$br()
+                            ),
+                     column(6,
                             includeMarkdown("about_information.md")
+                     ),
+                     column(3,
+                            tags$br()
                      )
                    )
                  )
@@ -80,7 +70,9 @@ server <- function(input, output, session) {
                                     "destination_elevation" = NULL,
                                     "quick_date" = NULL,
                                     "start_date" = NULL,
-                                    "end_date" = NULL)
+                                    "end_date" = NULL,
+                                    "daily_data" = NULL,
+                                    "hourly_data" = NULL)
   
   observe({
     # Create a palette that maps factor levels to colors
@@ -88,8 +80,9 @@ server <- function(input, output, session) {
     
     leafletProxy("map", data = all_stations_tbl) %>%
       clearShapes() %>%
-      addCircleMarkers(~longitude, ~latitude, label=~as.character(gsub("(?<=\\b)([a-z])", "\\U\\1", tolower(name), perl=TRUE)),
-                       layerId = ~id, color = ~pal(freq), radius = 6, fillOpacity = 0.75, opacity = 0.3)
+      addCircleMarkers(~longitude, ~latitude, label=~as.character(name),
+                       layerId = ~id, color = ~pal(freq), radius = 6, fillOpacity = 0.75, opacity = 0.3,
+                       group = "stations")
     
   })
   
@@ -124,7 +117,10 @@ server <- function(input, output, session) {
   })
   
   
-  observeEvent(map_status_list[["destination"]], {
+  observeEvent({
+    input$map_click
+    input$search_target_zone
+  }, {
     req(map_status_list[["destination"]])
     destination_df <- data.frame(x = map_status_list[["destination"]]$lng,
                                  y = map_status_list[["destination"]]$lat)
@@ -144,7 +140,7 @@ server <- function(input, output, session) {
     return(map_status_list[["destination_elevation"]] - station_elevation)
   })
   
-  observeEvent(map_status_list[["destination_elevation"]], {
+  observeEvent(input$search_target_zone, {
     req(map_status_list[["destination"]])
     req(map_status_list[["destination_elevation"]])
     
@@ -163,10 +159,28 @@ server <- function(input, output, session) {
                         icon = click_icon, layerId = "click_location")
   })
   
+  observeEvent(input$map_click, {
+    req(map_status_list[["destination"]])
+    req(map_status_list[["destination_elevation"]])
+    
+    click_icon <- makeAwesomeIcon(
+      icon = 'compass',
+      iconColor = 'black',
+      library = 'ion',
+      markerColor = "green"
+    )
+    
+    leafletProxy("map") %>%
+      leaflet::removeMarker("click_location") %>%
+      addAwesomeMarkers(map_status_list[["destination"]]$lng, map_status_list[["destination"]]$lat,
+                        label = paste("Selected Destination:", round(map_status_list[["destination_elevation"]], 0), "(ft)"),
+                        icon = click_icon, layerId = "click_location")
+  })
+  
   
   format_station_info <- function(station_data) {
     content <- tagList(
-      tags$h3(HTML(paste0("Weather Station: ", gsub("(?<=\\b)([a-z])", "\\U\\1", tolower(station_data$name), perl=TRUE)))),
+      tags$h3(HTML(paste0("Weather Station: ", station_data$name))),
       tags$strong(paste(sprintf("%s, %s %s",station_data$post_office, station_data$state, station_data$zipcode), sprintf("(Elevation %s ft)", round((as.numeric(station_data$elevation) * 3.28084), 0)))), tags$br(),
       tags$strong(sprintf("Latitude: %s    Longitude: %s", station_data$latitude, station_data$longitude)), tags$br(),
       tags$br()
@@ -190,7 +204,7 @@ server <- function(input, output, session) {
     )
     leafletProxy("map") %>%
       leaflet::removeMarker("selected_station") %>% 
-      addAwesomeMarkers(station_details_tbl$longitude, station_details_tbl$latitude, label = gsub("(?<=\\b)([a-z])", "\\U\\1", tolower(station_details_tbl$name), perl=TRUE),
+      addAwesomeMarkers(station_details_tbl$longitude, station_details_tbl$latitude, label = station_details_tbl$name,
                         icon = selected_icon, layerId = "selected_station")
   })
   
@@ -201,18 +215,17 @@ server <- function(input, output, session) {
   
   
   closest_station <- function(all_stations_tbl, long, lat) {
-    all_stations_tbl_dist <- all_stations_tbl
-    all_stations_tbl_dist[["distance"]] <- as.numeric(apply(all_stations_tbl[,c("longitude","latitude")], 1, function(x) distHaversine(c(long, lat), x))) * 0.000621371
+    all_stations_tbl_dist <- all_stations_tbl %>% dplyr::filter(daily)
+    all_stations_tbl_dist[["distance"]] <- as.numeric(apply(all_stations_tbl_dist[,c("longitude","latitude")], 1, function(x) distHaversine(c(long, lat), x))) * 0.000621371
     all_stations_tbl_dist <- all_stations_tbl_dist %>% dplyr::arrange(distance)
     return(all_stations_tbl_dist[1,]$id)
   }
   
-  observeEvent(map_status_list[["destination"]], {
+  observeEvent(input$search_target_zone, {
     req(target_pos())
     target_pos <- target_pos()
     map_status_list[["station_selected"]] <- closest_station(all_stations_tbl, target_pos$lon, target_pos$lat)
   })
-  
   
   ## uncomment to make the nearest weather station automatically select when destination is set
   # observeEvent(map_status_list[["destination"]], {
@@ -220,9 +233,14 @@ server <- function(input, output, session) {
   #   map_status_list[["station_selected"]] <- closest_station(all_stations_tbl, map_status_list[["destination"]]$lng, map_status_list[["destination"]]$lat)
   # })
   
-  
-  single_station_data <- eventReactive(map_status_list[["station_selected"]], {
-    get_weather_station_data(map_status_list[["station_selected"]], credentials_list, pool)
+  # db version
+  single_station_data <- eventReactive({
+    map_status_list[["station_selected"]]
+    input$data_freq
+    }, {
+    req(input$data_freq)
+    get_weather_station_data(map_status_list[["station_selected"]], credentials_list, pool,
+                             frequency = input$data_freq)
   })
   
   
@@ -263,12 +281,26 @@ server <- function(input, output, session) {
     
     freq_options_vec <- NULL
     default_freq <- "d"
-    if (selected_station$hourly) {
-      freq_options_vec <- c(freq_options_vec, c("Hourly" = "h"))
-      default_freq <- "h"
-    }
-    if (selected_station$daily) {
-      freq_options_vec <- c(freq_options_vec, c("Daily" = "d"))
+    if (!is.null(input$data_freq)) {
+      # if the user left freq at hourly then use the hourly default instead of daily to be consistent
+      if (input$data_freq == "h") {
+        if (selected_station$hourly) {
+          freq_options_vec <- c(freq_options_vec, c("Hourly" = "h"))
+          default_freq <- "h"
+        }
+        if (selected_station$daily) {
+          freq_options_vec <- c(freq_options_vec, c("Daily" = "d"))
+        }
+      } else {
+        default_freq <- "d"
+        if (selected_station$hourly) {
+          freq_options_vec <- c(freq_options_vec, c("Hourly" = "h"))
+          default_freq <- "d"
+        }
+        if (selected_station$daily) {
+          freq_options_vec <- c(freq_options_vec, c("Daily" = "d"))
+        }
+      }
     }
     
     tagList(
@@ -327,6 +359,8 @@ server <- function(input, output, session) {
   
   temperature_data_clean <- reactive({
     req(single_station_data())
+    req(input$data_freq)
+    
     # bring in the raw date sorted data
     temp_tbl <- single_station_data()
     
@@ -345,7 +379,7 @@ server <- function(input, output, session) {
     }
     
     # parse hourly data
-    if (c("h") %in% unique(temp_tbl$freq)) {
+    if (input$data_freq == "h") {
       temp_avg_tbl <- temp_tbl %>%
         dplyr::filter(freq == "h") %>%
         dplyr::mutate(metric = dplyr::case_when(metric == "temperature mean" ~ "Avg Temp",
@@ -389,7 +423,7 @@ server <- function(input, output, session) {
     }
     
     # parse daily data
-    if (c("d") %in% unique(temp_tbl$freq)) {
+    if (input$data_freq == "d") {
       temp_avg_tbl <- temp_tbl %>%
         dplyr::filter(freq == "d") %>%
         dplyr::mutate(metric = dplyr::case_when(metric == "Long-term averages of daily average temperature" ~ "Avg Temp",
