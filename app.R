@@ -44,7 +44,7 @@ ui <- navbarPage("Weather Scout", id = "nav",
                             tags$br()
                             ),
                      column(6,
-                            includeMarkdown("static_assets/about_information.md")
+                            includeMarkdown("about_information.md")
                      ),
                      column(3,
                             tags$br()
