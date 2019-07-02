@@ -7,8 +7,8 @@ ui <- navbarPage("Weather Scout", id = "nav",
                           div(class = "outer",
                               tags$head(
                                 # allows for custom css and javascript
-                                includeCSS("style.css"),
-                                includeScript("gomap.js")
+                                includeCSS("static_assets/style.css"),
+                                includeScript("static_assets/gomap.js")
                               ),
                               # create the leaflet.js based map
                               leafletOutput("map", width = "100%", height = "100%"),
@@ -44,7 +44,7 @@ ui <- navbarPage("Weather Scout", id = "nav",
                             tags$br()
                             ),
                      column(6,
-                            includeMarkdown("about_information.md")
+                            includeMarkdown("static_assets/about_information.md")
                      ),
                      column(3,
                             tags$br()
