@@ -120,37 +120,43 @@ server <- function(input, output, session) {
     }
   })
   
+  # helper function to find a stations elevation in ft
+  find_station_elevation <- function(all_stations_tbl, station_id) {
+    station_info <- all_stations_tbl %>% dplyr::filter(id == station_id)
+    return(station_info$elevation * 3.28084)
+  }
+  
   # anytime a destination is set with a map click or a search is triggered then find the new destination elevation and save it
-  observeEvent({
-    input$map_click
-    input$search_target_zone
-  }, {
-    req(map_status_list[["destination"]])
-    destination_df <- data.frame(x = map_status_list[["destination"]]$lng,
-                                 y = map_status_list[["destination"]]$lat)
-    
-    destination_elevation <- suppressMessages(get_elev_point(destination_df, prj = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs",
-                                                             src = "epqs"))$elevation * 3.28084
-    map_status_list[["destination_elevation"]] <- destination_elevation
-  })
-  
-  # returns the elevation difference between the selected station and the destination
-  # this is then used to adjust the temperature later on
-  destination_elevation_diff <- reactive({
-    req(map_status_list[["destination_elevation"]])
-    req(map_status_list[["station_selected"]])
-    
-    station_info <- all_stations_tbl %>% dplyr::filter(id == map_status_list[["station_selected"]])
-    station_elevation <- station_info$elevation * 3.28084
-    return(map_status_list[["destination_elevation"]] - station_elevation)
-  })
-  
   # once a destination is selected, draw a green marker at that location and display the elevation on hover
-  # notice that this code below sets the view to be centered on the new location with a zoom of 10
+  # notice that the view to be centered on the new location with a zoom of 10 only when a search is made
   observeEvent(input$search_target_zone, {
-    req(map_status_list[["destination"]])
-    req(map_status_list[["destination_elevation"]])
+    destination_df <- data.frame(lon = map_status_list[["destination"]]$lng,
+                                 lat = map_status_list[["destination"]]$lat)
+    # attempt to connect to the google api 5 times just in case some connections fail
+    r <- NULL
+    attempt <- 0
+    while(is.null(r) && attempt <= 4) {
+      if (attempt > 0) {
+        Sys.sleep(0.2)
+      }
+      attempt <- attempt + 1
+      try(
+        r <- google_elevation(df_locations = destination_df, simplify = TRUE, key = dw$google_api)
+      )
+    }
     
+    if (!is.null(r)) {
+      if (r$status == "OK") {
+        map_status_list[["destination_elevation"]] <- (r$results$elevation * 3.28084)
+      } else {
+        req(map_status_list[["station_selected"]])
+        map_status_list[["destination_elevation"]] <- find_station_elevation(all_stations_tbl, map_status_list[["station_selected"]])
+      }
+    } else {
+      req(map_status_list[["station_selected"]])
+      map_status_list[["destination_elevation"]] <- find_station_elevation(all_stations_tbl, map_status_list[["station_selected"]])
+    }
+
     click_icon <- makeAwesomeIcon(
       icon = 'compass',
       iconColor = 'black',
@@ -164,13 +170,39 @@ server <- function(input, output, session) {
       addAwesomeMarkers(map_status_list[["destination"]]$lng, map_status_list[["destination"]]$lat,
                         label = paste("Selected Destination:", round(map_status_list[["destination_elevation"]], 0), "(ft)"),
                         icon = click_icon, layerId = "click_location")
+    
   })
   
+  # anytime a destination is set with a map click or a search is triggered then find the new destination elevation and save it
   # once a destination is selected, draw a green marker at that location and display the elevation on hover
-  # notice that this code below does NOT set the view to be centered since that would be confusing to the user
+  # notice that the view to be centered on the new location with a zoom of 10 only when a search is made
   observeEvent(input$map_click, {
-    req(map_status_list[["destination"]])
-    req(map_status_list[["destination_elevation"]])
+    destination_df <- data.frame(lon = map_status_list[["destination"]]$lng,
+                                 lat = map_status_list[["destination"]]$lat)
+    # attempt to connect to the google api 5 times just in case some connections fail
+    r <- NULL
+    attempt <- 0
+    while(is.null(r) && attempt <= 4) {
+      if (attempt > 0) {
+        Sys.sleep(0.2)
+      }
+      attempt <- attempt + 1
+      try(
+        r <- google_elevation(df_locations = destination_df, simplify = TRUE, key = dw$google_api)
+      )
+    }
+    
+    if (!is.null(r)) {
+      if (r$status == "OK") {
+        map_status_list[["destination_elevation"]] <- (r$results$elevation * 3.28084)
+      } else {
+        req(map_status_list[["station_selected"]])
+        map_status_list[["destination_elevation"]] <- find_station_elevation(all_stations_tbl, map_status_list[["station_selected"]])
+      }
+    } else {
+      req(map_status_list[["station_selected"]])
+      map_status_list[["destination_elevation"]] <- find_station_elevation(all_stations_tbl, map_status_list[["station_selected"]])
+    }
     
     click_icon <- makeAwesomeIcon(
       icon = 'compass',
@@ -180,10 +212,22 @@ server <- function(input, output, session) {
     )
     
     leafletProxy("map") %>%
-      leaflet::removeMarker("click_location") %>%
+      leaflet::removeMarker("click_location") %>% 
       addAwesomeMarkers(map_status_list[["destination"]]$lng, map_status_list[["destination"]]$lat,
                         label = paste("Selected Destination:", round(map_status_list[["destination_elevation"]], 0), "(ft)"),
                         icon = click_icon, layerId = "click_location")
+    
+  })
+  
+  # returns the elevation difference between the selected station and the destination
+  # this is then used to adjust the temperature later on
+  destination_elevation_diff <- reactive({
+    req(map_status_list[["destination_elevation"]])
+    req(map_status_list[["station_selected"]])
+    
+    station_info <- all_stations_tbl %>% dplyr::filter(id == map_status_list[["station_selected"]])
+    station_elevation <- station_info$elevation * 3.28084
+    return(map_status_list[["destination_elevation"]] - station_elevation)
   })
   
   # create a series of HTML to display information about a weather station
