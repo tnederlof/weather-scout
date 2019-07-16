@@ -3,8 +3,6 @@ source("general_functions.R")
 
 # load libraries
 library(leaflet)
-library(elevatr)
-library(rgdal)
 library(sp)
 library(ggmap)
 library(geosphere)
