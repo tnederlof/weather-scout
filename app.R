@@ -1,56 +1,50 @@
 source("startup.R")
 source("global_db.R")
 
-ui <- navbarPage("Weather Scout", id = "nav",
-                 # tablPanel 1 which contains the main map, search and data display panels of the application
-                 tabPanel("Interactive map",
-                          div(class = "outer",
-                              tags$head(
-                                # allows for custom css and javascript
-                                includeCSS("static_assets/style.css"),
-                                includeScript("static_assets/gomap.js")
-                              ),
-                              # create the leaflet.js based map
-                              leafletOutput("map", width = "100%", height = "100%"),
-                              # create the destination search box and enter button (which can also be
-                              # triggered by hitting enter due to a line added in gomap.js)
-                              absolutePanel(top = 5, left = 70, uiOutput("map_search")),
-                              absolutePanel(top = 25, left = 375, uiOutput("map_enter")),
-                              # create side panel
-                              absolutePanel(id = "controls", class = "panel panel-default", fixed = TRUE,
-                                            draggable = FALSE, top = 74, left = "auto", right = 20, bottom = "auto",
-                                            width = 600, height = "auto",
-                                            # display information about the selected weather station
-                                            box(uiOutput("station_info"), width = 12, height = "100px"),
-                                            # display control and graph output panels
-                                            tabBox(width = 12,
-                                                   id = "main_tab_box", height = "690px",
-                                                   tabPanel("Quick Look",
-                                                            wellPanel(withSpinner(uiOutput("quick_data"), proxy.height = "200px")),
-                                                            withSpinner(plotlyOutput("quick_temp_graph", height = "400px"))
-                                                   ),
-                                                   tabPanel("Advanced",
-                                                            withSpinner(uiOutput("timeseries_date_control"), proxy.height = "200px"),
-                                                            withSpinner(plotlyOutput("temp_timeseries_graph", height = "400px"))
-                                                   )
-                                            )
-                              )
-                          )
-                 ),
-                 # tablPanel 2 which contains the about page giving background on the project and about the author
-                 tabPanel("About",
-                   fluidRow(
-                     column(3,
-                            tags$br()
-                            ),
-                     column(6,
-                            includeMarkdown("about_information.md")
+
+ui <- miniPage(
+      tags$head(
+        # allows for custom css and javascript
+        includeCSS("static_assets/style.css"),
+        includeScript("static_assets/gomap.js")
+      ),
+      gadgetTitleBar("The Weather Scout", left = NULL, right = NULL),
+      miniTabstripPanel(
+        miniTabPanel("Map", icon = icon("map-o"),
+                     miniContentPanel(padding = 0,
+                                      # create the leaflet.js based map
+                                      leafletOutput("map", width = "100%", height = "100%"),
+                                      # create the destination search box and enter button (which can also be
+                                      # triggered by hitting enter due to a line added in gomap.js)
+                                      absolutePanel(top = 5, left = 70, uiOutput("map_search")),
+                                      absolutePanel(top = 25, left = 325, uiOutput("map_enter"))
                      ),
-                     column(3,
-                            tags$br()
+                     miniButtonBlock(
+                                     box(uiOutput("station_info"), width = 12)
                      )
-                   )
-                 )
+        ),
+        miniTabPanel("Quick Data", icon = icon("table"),
+                     miniContentPanel(
+                         fillCol(flex = c(1, 2.25),
+                           wellPanel(withSpinner(uiOutput("quick_data"), proxy.height = "200px")),
+                           withSpinner(plotlyOutput("quick_temp_graph", height = "560px"))
+                         )
+                     )
+        ),
+        miniTabPanel("Time Data", icon = icon("table"),
+                     miniContentPanel(
+                       fillCol(flex = c(0.5, 2),
+                         withSpinner(uiOutput("timeseries_date_control"), proxy.height = "200px"),
+                         withSpinner(plotlyOutput("temp_timeseries_graph", height = "560px"))
+                       )
+                     )
+        ),
+        miniTabPanel("About", icon = icon("book"),
+                     miniContentPanel(
+                       fillRow(flex = c(0.5, 2, 0.5), tags$br(), includeMarkdown("about_information.md"), tags$br())
+                     )
+        )
+      )
 )
 
 server <- function(input, output, session) {
@@ -66,7 +60,7 @@ server <- function(input, output, session) {
                          layerId = "legend") %>%
       # set the view so the whole United States is in view as a starting point
       # (this could be changed to start in a particular area)
-      leaflet::setView(lng = -89.3, lat = 38.3458, zoom = 5)
+      leaflet::setView(lng = -89.3, lat = 38.3458, zoom = 3)
   })
   
   # initialize the store of reactive values used throughout the application
@@ -243,7 +237,7 @@ server <- function(input, output, session) {
   
   # draw a blue marker to show which weather station is currently selected
   observeEvent(map_status_list[["station_selected"]], {
-    
+  
     station_details_tbl <- all_stations_tbl %>% dplyr::filter(id == map_status_list[["station_selected"]])
     
     selected_icon <- makeAwesomeIcon(
@@ -260,7 +254,9 @@ server <- function(input, output, session) {
   
   # save the id of the circle market when clicked, this id becomes the station selected
   observeEvent(input$map_marker_click$id, {
-    map_status_list[["station_selected"]] <- input$map_marker_click$id
+    if (input$map_marker_click$id != "click_location") {
+      map_status_list[["station_selected"]] <- input$map_marker_click$id 
+    }
   })
   
   # return the id of the closest station to a certain long and lat
@@ -319,7 +315,7 @@ server <- function(input, output, session) {
   
   # destination search box
   output$map_search <- renderUI({
-    textInput("target_zone", "" , "", placeholder = "Enter a location: ex Denver")
+    textInput("target_zone", "" , "", placeholder = "Enter a location: ex Denver", width = "250px")
   })
   
   # destination search button
@@ -360,12 +356,12 @@ server <- function(input, output, session) {
     tagList(
       htmlOutput("help_prompt_text"),
       tags$br(),
-      splitLayout(cellWidths = c("40%", "30%"),
+      splitLayout(cellWidths = c("50%", "40%"),
                   dateInput('quick_date_selected', label = 'Start Date: yyyy-mm-dd', value = Sys.Date()),
                   selectInput("data_freq", "Data Frequency:", freq_options_vec, selected = default_freq)
       ),
       splitLayout(cellWidths = c("50%", "30%"),
-                  checkboxInput("adjust_temp", label = "Adjust Temp for Elevation Diff", value = TRUE),
+                  checkboxInput("adjust_temp", label = "Adjust Temp Elev Diff", value = TRUE),
                   checkboxInput("show_range_bars", label = "Show High/Low Ranges", value = F)
       )
     )

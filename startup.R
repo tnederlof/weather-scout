@@ -24,6 +24,7 @@ library(shiny)
 library(shinydashboard)
 library(config)
 library(googleway)
+library(miniUI)
 
 # call database credentials
 dw <- config::get("maindb")
