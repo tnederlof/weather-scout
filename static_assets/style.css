@@ -2,14 +2,16 @@ input[type="number"] {
   max-width: 80%;
 }
 
-
-
-
-@media (min-width: 650px){
-  .gadget-tabs-content-container {
-  margin-left: 150px;
-  margin-right: 150px;
+h1 {
+      font-size: 24px !important;
+      font-weight: bold !important;
+      
 }
+
+
+.shiny-output-error-validation {
+        color: red;
+        font-size: 16px;
 }
 
 

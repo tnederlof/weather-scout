@@ -3,6 +3,7 @@ source("global_db.R")
 
 
 ui <- miniPage(
+      tags$head(tags$link(rel = "shortcut icon", href = "favicon.ico")),
       tags$head(
         # allows for custom css and javascript
         includeCSS("static_assets/style.css"),
@@ -31,7 +32,7 @@ ui <- miniPage(
                          )
                      )
         ),
-        miniTabPanel("Time Data", icon = icon("table"),
+        miniTabPanel("Time Data", icon = icon("chart-area"),
                      miniContentPanel(
                        fillCol(flex = c(0.5, 2),
                          withSpinner(uiOutput("timeseries_date_control"), proxy.height = "200px"),
@@ -42,6 +43,11 @@ ui <- miniPage(
         miniTabPanel("About", icon = icon("book"),
                      miniContentPanel(
                        fillRow(flex = c(0.5, 2, 0.5), tags$br(), includeMarkdown("about_information.md"), tags$br())
+                     )
+        ),
+        miniTabPanel("Help", icon = icon("info"),
+                     miniContentPanel(
+                       fillRow(flex = c(0.5, 2, 0.5), tags$br(), includeMarkdown("help_information.md"), tags$br())
                      )
         )
       )
@@ -320,12 +326,12 @@ server <- function(input, output, session) {
   
   # destination search button
   output$map_enter <- renderUI({
-    actionButton("search_target_zone", "Search Location")
+    actionButton("search_target_zone", "Search")
   })
   
   # ui quick data control panel options
   output$quick_data <- renderUI({
-    req(map_status_list[["station_selected"]])
+    validate(need(map_status_list[["station_selected"]], "Please select a destination on the maps tab first."))
     
     selected_station <- all_stations_tbl %>% dplyr::filter(id == map_status_list[["station_selected"]])
     
@@ -356,14 +362,12 @@ server <- function(input, output, session) {
     tagList(
       htmlOutput("help_prompt_text"),
       tags$br(),
-      splitLayout(cellWidths = c("50%", "40%"),
+      splitLayout(cellWidths = c("40%", "30%", "30%"),
                   dateInput('quick_date_selected', label = 'Start Date: yyyy-mm-dd', value = Sys.Date()),
-                  selectInput("data_freq", "Data Frequency:", freq_options_vec, selected = default_freq)
+                  selectInput("data_freq", "Data Frequency:", freq_options_vec, selected = default_freq),
+                  numericInput("elevation_adj_setting", "Deg F Adj for 1k Elevation Chg", value = 3.57, min = 0, max = 50)
       ),
-      splitLayout(cellWidths = c("50%", "30%"),
-                  checkboxInput("adjust_temp", label = "Adjust Temp Elev Diff", value = TRUE),
-                  checkboxInput("show_range_bars", label = "Show High/Low Ranges", value = F)
-      )
+      checkboxInput("show_range_bars", label = "Show High/Low Ranges", value = F)
     )
   })
   
@@ -391,6 +395,7 @@ server <- function(input, output, session) {
   
   # ui time series data control panel options
   output$timeseries_date_control <- renderUI({
+    validate(need(map_status_list[["station_selected"]], "Please select a destination on the maps tab first."))
     req(map_status_list[["station_selected"]])
     req(map_status_list[["start_date"]])
     req(map_status_list[["end_date"]])
@@ -409,6 +414,8 @@ server <- function(input, output, session) {
   temperature_data_clean <- reactive({
     req(single_station_data())
     req(input$data_freq)
+    if (is.null(input$elevation_adj_setting))
+      return(NULL)
     
     # bring in the raw station data
     temp_tbl <- single_station_data()
@@ -416,16 +423,7 @@ server <- function(input, output, session) {
     # if requested in the control panel, adjust temperature based on the elevation difference
     # between the selection station and the choosen destination
     if (!is.null(map_status_list[["destination"]])) {
-      if (!is.null(input$adjust_temp)) {
-        if (input$adjust_temp) {
-          # the general rule of thumb is for every 1k ft temperature drops 3.57 degrees
-          adjustment_factor <- ((destination_elevation_diff() / 1000) * 3.57) * -1
-        } else {
-          adjustment_factor <- 0
-        }
-      } else {
-        adjustment_factor <- 0
-      }
+      adjustment_factor <- ((destination_elevation_diff() / 1000) * input$elevation_adj_setting) * -1
     } else {
       adjustment_factor <- 0
     }
